@@ -4,7 +4,7 @@
 
 ```text
 tool_reliability_agent/
-├─ main.py                    ← 공식 통합 파일 (아직 비어있음, 9/22 통합 때 3인이 같이 채움)
+├─ main.py                    ← 공식 1+2+3 통합 실행 파일
 ├─ config.py                  ← 공식 (실험 파라미터: NUM_TASKS, NUM_RUNS, RANDOM_SEED, Tool 성공률 스케줄 등)
 ├─ models.py                  ← 공식 (TaskInput, ToolResult, RoutingDecision 데이터클래스)
 │
@@ -18,8 +18,8 @@ tool_reliability_agent/
 │   └─ simulated_tools.py     ← SimulatedToolA(95→60→20→95%), SimulatedToolB(80% 고정)
 │
 ├─ reliability/               ← 2번 담당 (완료: ReliabilityManager, Sliding Window, EWMA)
-├─ routing/                    ← 3번 담당 (아직 비어있음)
-├─ evaluation/                 ← 3번 담당 (아직 비어있음)
+├─ routing/                   ← 3번 담당 (완료: BaselineRouter, ReliabilityRouter)
+├─ evaluation/                ← 3번 담당 (완료: Evaluator)
 ├─ tests/                     ← 2번 Reliability 단위/AgentCore 연결 테스트 추가
 │
 ├─ llm_router_prototype.py     ← 백업 프로토타입 (LLM이 Tool 고르는 Router, 확정 아님)
@@ -60,14 +60,14 @@ tool_reliability_agent/
 - [x] `success` 필드는 bool 형식인가?
 - [x] Tool ID가 `tool_a`/`tool_b`로 통일되어 있는가?
 - [x] Reliability Score가 0.0~1.0 범위인가? (2번 실코드 및 자동 테스트로 확인)
-- [x] Router가 select_tool()을 지원하는가? (Mock 기준 확인 — 3번 실코드 완성 후 재확인 필요)
-- [x] Router 반환값이 RoutingDecision인가? (Mock 기준 확인 — 3번 실코드 완성 후 재확인 필요)
+- [x] Router가 `select_tool()`을 지원하는가? (3번 실코드 + 통합 테스트 확인)
+- [x] Router 반환값이 `RoutingDecision`인가? (3번 실코드 + 통합 테스트 확인)
 - [x] Agent 실행 함수가 `run_task()`인가?
 - [x] 평가 로그 컬럼명이 문서 기준과 동일한가? (9개 컬럼 일치)
 - [x] 실험 파라미터가 `config.py`에서 관리되는가?
 - [x] Random Seed로 재현 가능한가?
 - [x] `ReliabilityManager`가 `update()`/`get_score()`/`get_all_scores()`/`reset()` 지원 — **2번 실코드 및 AgentCore 연결 확인 완료**
-- [ ] 전체 통합 파이프라인(`main.py`) — **3번 Router/Evaluation 완료 후 3인 통합 때 진행**
+- [x] 전체 통합 파이프라인(`main.py`) — **1+2+3 end-to-end 실행 확인 완료**
 
 ## 모델/방식 결정 사항 & 확인 필요
 
@@ -174,3 +174,141 @@ Seed 42 실제 결과의 구간별 평균 Reliability:
 두 방식 모두 **높음 → 감소 → 최저 → 회복** 추세가 확인되었다.
 
 Reliability 코드 추가 후 기존 `run_baseline_dryrun.py`도 다시 실행하여 **1000행 정상 생성**을 확인했다. 기존 1번 담당 핵심 파일(`agent/agent_core.py`, `tools/*`, `models.py`)은 수정하지 않았다.
+
+
+## 3번 Routing / Evaluation 및 1+2+3 통합 완료
+
+역할 소유권은 다음과 같이 유지했다.
+
+- **1번**: `AgentCore`, `SimulatedToolA`, `SimulatedToolB`
+- **2번**: `ReliabilityManager`, Sliding Window, EWMA
+- **3번**: `BaselineRouter`, `ReliabilityRouter`, `Evaluator`
+- **공동**: `config.py`, `models.py`, `main.py`, `tests/`
+
+첨부 ZIP의 `agent/`, `tools/`, `reliability/`는 3번 담당자의 독립 실행용 Mock이므로 최종 통합에 사용하지 않았다. 현재 GitHub의 1번 Tool과 2번 Reliability 구현을 authoritative implementation으로 유지했다.
+
+### 최종 한 Task 실행 흐름
+
+```text
+TaskInput
+→ AgentCore
+→ ReliabilityManager.get_all_scores()
+→ BaselineRouter 또는 ReliabilityRouter
+→ RoutingDecision
+→ SimulatedToolA / SimulatedToolB
+→ ToolResult
+→ ReliabilityManager.update(result)
+→ Evaluator.log_step(...)
+→ 다음 Task
+```
+
+Evaluator에는 **Router가 실제 선택에 사용했던 update 이전 reliability snapshot**을 기록한다.
+
+### Routing 정책
+
+`BaselineRouter`
+- Reliability score를 계산하더라도 선택에는 사용하지 않는다.
+- 기본 preferred tool은 `tool_a`다.
+
+`ReliabilityRouter`
+- 높은 Reliability 우선
+- `EXPLORATION_RATE = 0.10`
+- `FORCED_PROBE_INTERVAL = 10`
+- `MIN_SWITCH_GAIN = 0.05`
+- 작은 점수 차이에서는 hysteresis로 불필요한 switching을 억제한다.
+
+### Evaluation
+
+공개 메서드:
+- `log_step()`
+- `compute_metrics()`
+- `save_results()`
+- `reset()`
+
+지표:
+- `task_success_rate`
+- `failure_avoidance_rate`
+- `detection_lag`
+- `recovery_lag`
+- `tool_switching_rate`
+- `retry_count`
+- `token_count`
+- `avg_latency_sec`
+
+**주의:** `failure_avoidance_rate`, `detection_lag`, `recovery_lag`는 현재 simulated environment에서 `config.get_tool_success_probability()`로 ground-truth 성공확률을 알고 있다는 전제로 계산되는 simulation metric이다. 실제 production Agent에서 동일한 ground truth가 자동으로 주어진다고 해석하면 안 된다.
+
+### 전체 자동 테스트
+
+```bash
+cd tool_reliability_agent
+python -m unittest discover -s tests -v
+pytest -q
+```
+
+실제 검증 결과:
+
+```text
+27 tests passed
+```
+
+기존 2번 Reliability 13개 테스트를 유지하면서 Routing, Evaluation, End-to-End 테스트를 추가했다.
+
+### 공식 통합 실험
+
+```bash
+cd tool_reliability_agent
+python main.py
+```
+
+한 명령으로 다음을 실행한다.
+
+- Baseline: 100 Task × 10 Run
+- Proposed: 100 Task × 10 Run
+- 각 run 시작 전 `seed = RANDOM_SEED + run_id - 1`
+- Baseline과 Proposed 시작 직전에 각각 `random.seed(seed)` 재설정
+- 통합 CSV 저장
+- 통합 summary 저장
+
+실제 실행 결과(10-run 평균):
+
+| Metric | Baseline | Proposed |
+|---|---:|---:|
+| task_success_rate | 0.673 | 0.777 |
+| failure_avoidance_rate | 0.500 | 0.570 |
+| detection_lag | N/A | 3.9 |
+| recovery_lag | N/A | 15.0 |
+| tool_switching_rate | 0.000 | 0.265 |
+| retry_count | 0.0 | 0.0 |
+| token_count | 0.0 | 0.0 |
+
+Tool latency는 1번 시뮬레이터가 매우 짧은 실제 wall-clock 시간을 4자리로 반올림하므로 이 실행에서는 평균 `0.0`으로 기록되었다.
+
+생성 결과 파일명은 다음 규칙을 사용한다.
+
+```text
+results/integrated_baseline_run_01.csv ... integrated_baseline_run_10.csv
+results/integrated_proposed_run_01.csv ... integrated_proposed_run_10.csv
+results/integrated_summary.json
+```
+
+각 run CSV는 header 제외 정확히 100행이며, `run_id`, `task_id=1..100`, Tool ID, Reliability 0~1, nonnegative latency를 sanity check했다.
+
+### 기존 코드 회귀 검증
+
+통합 후에도 아래 기존 실행을 다시 확인했다.
+
+```bash
+python run_baseline_dryrun.py
+# 1000 rows 정상 생성
+
+python run_reliability_dryrun.py
+# 200 rows 정상 생성
+```
+
+기존 `tests/test_reliability.py`도 그대로 포함되어 전체 27개 테스트 안에서 통과한다.
+
+### ZIP 참고 결과와 실제 통합 결과
+
+3번 ZIP의 기존 Mock 기반 참고 summary는 Baseline 약 0.664, Proposed 약 0.797이었다. 실제 1번 Tool + 2번 Reliability + 3번 Router/Evaluator 통합 실행에서는 각각 **0.673 / 0.777**이 나왔다.
+
+차이는 ZIP의 Tool/Random 구현이 현재 1번 실제 `SimulatedToolA/B`와 다르기 때문이다. ZIP 수치를 통합 결과로 재사용하지 않았다.
