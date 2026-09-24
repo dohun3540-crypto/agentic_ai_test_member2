@@ -157,7 +157,17 @@ R_t = α x_t + (1 - α) R_(t-1)
 
 EWMA는 과거 상태를 연속적으로 유지하면서 최근 관측에 더 큰 가중치를 주는 방식이다.
 
-ReliabilityManager는 현재 **sliding_window와 ewma 두 방식만 지원**한다.
+ReliabilityManager는 현재 **cumulative, sliding_window, ewma 세 방식**을 지원한다.
+
+### Cumulative
+
+전체 관측 이력을 누적하여 성공 비율을 계산한다.
+
+~~~text
+R_t = 누적 성공 횟수 / 누적 실행 횟수
+~~~
+
+실행 이력이 없을 때는 INITIAL_RELIABILITY(기본 0.50)를 유지하고, 첫 실제 관측부터 누적 성공률로 갱신한다. Tool A/B의 success count와 total count는 서로 독립적으로 관리되며 reset() 시 모두 초기화된다.
 
 ---
 
@@ -279,7 +289,7 @@ failure_avoidance_rate, detection_lag, recovery_lag는 config.get_tool_success_p
 ~~~bash
 git clone https://github.com/dohun3540-crypto/agentic_ai_test_member2.git
 cd agentic_ai_test_member2
-git checkout integration/member3-routing-evaluation
+git checkout main
 cd tool_reliability_agent
 ~~~
 
@@ -311,7 +321,7 @@ pytest가 설치되어 있다면 다음도 가능하다.
 pytest -q
 ~~~
 
-현재 테스트 코드는 Reliability 13개 + Routing/Evaluation/Integration 14개로 총 27개의 unittest-compatible 테스트 케이스를 포함한다.
+현재 테스트 코드는 Cumulative 및 동일-sequence 공식 검증을 포함해 총 31개의 unittest-compatible 테스트 케이스를 포함한다.
 
 ### 2) Reliability Dry Run
 
@@ -321,7 +331,7 @@ python run_reliability_dryrun.py
 
 이 스크립트는 AlwaysToolARouter로 Tool A를 고정 선택하여 Router 성능을 평가하는 것이 아니라 **AgentCore → Tool A → ToolResult → ReliabilityManager.update() 연결과 Reliability 추세**를 검증한다.
 
-sliding_window와 ewma를 각각 100 Task씩 실행하고 총 200행을 reliability_dryrun_results.csv에 저장한다.
+cumulative, sliding_window, ewma를 각각 100 Task씩 실행하고 총 300행을 reliability_dryrun_results.csv에 저장한다.
 
 ### 3) Baseline Dry Run
 
@@ -509,7 +519,7 @@ LLM 결과 CSV도 공식 integrated_summary.json과 혼합해서 해석하지 �
 9. token_count도 공식 알고리즘 Router에서는 LLM을 호출하지 않으므로 0이다.
 10. latency는 실제 네트워크/API latency가 아니라 로컬 시뮬레이터 함수 실행 시간이다.
 11. run_baseline_dryrun.py의 random-choice Mock Baseline과 main.py의 공식 BaselineRouter를 혼동하면 안 된다.
-12. 현재 default main 브랜치는 통합 전 상태이므로 통합 실험 재현 시 integration/member3-routing-evaluation 브랜치를 사용한다.
+12. 현재 default main 브랜치에는 1+2+3 통합 코드가 반영되어 있으므로 공식 재현은 main 기준으로 수행한다.
 
 ---
 
@@ -593,7 +603,7 @@ agentic_ai_test_member2/
 | models.py | TaskInput, ToolResult, RoutingDecision 공통 데이터 구조 |
 | agent/agent_core.py | Reliability 조회 → Routing → Tool 실행 → Reliability update → Evaluation 흐름 |
 | tools/simulated_tools.py | Tool A 동적 성공률 / Tool B 고정 성공률 시뮬레이션 |
-| reliability/reliability_manager.py | Sliding Window / EWMA Reliability Memory |
+| reliability/reliability_manager.py | Cumulative / Sliding Window / EWMA Reliability Memory |
 | routing/tool_router.py | ToolRouter, BaselineRouter, ReliabilityRouter |
 | evaluation/evaluator.py | Task 로그, CSV 저장, metric 계산 |
 | tests/test_reliability.py | ReliabilityManager 및 AgentCore 연결 테스트 |
@@ -605,3 +615,91 @@ agentic_ai_test_member2/
 ## 23. 한 줄 요약
 
 이 저장소의 공식 실험은 **“최근 Tool 성공/실패를 Reliability Memory로 저장하고 그 값을 Tool routing에 사용하면, 시간에 따라 Tool 상태가 바뀌는 환경에 더 잘 적응할 수 있는가?”**를 BaselineRouter와 ReliabilityRouter의 100 Task × 10 Run 비교로 검증한다.
+
+
+---
+
+## 24. Member 2 Reliability 비교 실험
+
+9/25 일정 기준 Member 2 Tool Reliability 산출물은 공식 통합 실험과 분리된 다음 경로에서 재현한다.
+
+~~~bash
+python run_reliability_comparison.py
+python plot_reliability_comparison.py
+~~~
+
+비교 조건은 다음과 같다.
+
+| 조건 | 파라미터 |
+|---|---|
+| Cumulative | 전체 실행 이력 누적 |
+| Sliding Window | window = 5, 10, 20 |
+| EWMA | alpha = 0.1, 0.3, 0.5 |
+| 공통 Router | exploration=0.10, forced probe=10, min switch gain=0.05 |
+| 반복 | 각 조건 100 Task × 10 Run |
+| Seed | 42~51, `RANDOM_SEED + run_id - 1` |
+
+공식 `results/integrated_summary.json`은 덮어쓰지 않으며 새 결과는 다음 위치에 저장한다.
+
+~~~text
+results/reliability_comparison/
+├─ baseline_reference/
+├─ cumulative/
+├─ sliding_w5/
+├─ sliding_w10/
+├─ sliding_w20/
+├─ ewma_a01/
+├─ ewma_a03/
+├─ ewma_a05/
+├─ summary.csv
+├─ summary.json
+└─ figures/
+~~~
+
+### 비교 실험 요약
+
+| 조건 | Task Success | Failure Avoidance | Detection 성공률 | Detection Lag | Recovery 성공률 | Recovery Lag* | Switching |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Baseline | 0.673 | 0.500 | 0% | N/A | 0% | N/A | 0.000 |
+| Cumulative | 0.774 | 0.546 | 100% | 8.1 | 40% | 9.0 | 0.242 |
+| Sliding w5 | 0.791 | 0.617 | 100% | 4.0 | 50% | 15.2 | 0.260 |
+| Sliding w10 | 0.777 | 0.570 | 100% | 3.9 | 10% | 15.0 | 0.265 |
+| Sliding w20 | 0.780 | 0.562 | 100% | 6.9 | 30% | 14.0 | 0.254 |
+| EWMA α=0.1 | 0.768 | 0.538 | 100% | 11.2 | 10% | 15.0 | 0.267 |
+| EWMA α=0.3 | 0.788 | 0.639 | 100% | 3.5 | 70% | 11.57 | 0.288 |
+| EWMA α=0.5 | 0.793 | 0.690 | 100% | 2.6 | 90% | 10.11 | 0.283 |
+
+* Lag 평균은 해당 이벤트가 실제로 관측된 Run만 대상으로 계산한다. 따라서 반드시 `valid_detection_runs`, `valid_recovery_runs`, detection/recovery success rate와 함께 해석해야 한다. 예를 들어 Sliding w10의 Recovery Lag 15.0은 10 Run 전체 평균이 아니라 recovery가 관측된 1 Run의 값이다.
+
+현재 설정에서는 EWMA α=0.5가 Task Success 0.793, Failure Avoidance 0.690, Detection 10/10 및 Recovery 9/10으로 가장 강한 적응 성능을 보였다. 다만 Tool A Reliability의 변동성도 가장 컸으므로, 이 선택은 **변화 감지와 회복 적응을 중시하는 현재 동적 Tool 환경**에 대한 결과이며 일반적인 최적값으로 해석하면 안 된다.
+
+Cumulative는 평균 step 변화가 가장 작아 안정적이지만 오래된 이력의 영향으로 degradation 반응이 느렸다. Sliding Window는 작은 window일수록 추정값 변동성이 커지는 경향이 확인되었다. EWMA는 alpha가 커질수록 최근 결과에 더 민감해져 detection/recovery가 빨라졌지만 변동성도 증가했다.
+
+### 그래프
+
+`plot_reliability_comparison.py`는 다음 PNG를 생성한다.
+
+- Tool A Reliability 방법별 변화
+- Tool A 실제 성공확률 vs 추정 Reliability
+- Detection / Recovery Lag
+- Detection / Recovery Success Rate
+- 방법별 Task Success Rate
+
+그래프는 `results/reliability_comparison/figures/`에 저장된다. Matplotlib가 없는 환경에서는 `pip install matplotlib` 후 그래프 스크립트를 실행한다.
+
+---
+
+## 25. Member 2 재현 체크
+
+아래 순서로 완료 상태를 검증할 수 있다.
+
+~~~bash
+python -m unittest discover -s tests -v
+pytest -q
+python main.py
+python run_reliability_dryrun.py
+python run_reliability_comparison.py
+python plot_reliability_comparison.py
+~~~
+
+2026-09-24 검증에서는 31개 테스트가 모두 통과했고, 기존 공식 `main.py`의 Baseline 0.673 / Proposed 0.777이 동일 seed에서 그대로 재현되었다. Reliability 비교 실험은 Baseline 포함 8개 조건 × 10 Run × 100 Task = 총 80 Run / 8,000 Task를 실행한다.

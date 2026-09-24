@@ -13,7 +13,7 @@ class ReliabilityManager:
     """
 
     DEFAULT_TOOL_NAMES = ("tool_a", "tool_b")
-    SUPPORTED_METHODS = {"sliding_window", "ewma"}
+    SUPPORTED_METHODS = {"sliding_window", "ewma", "cumulative"}
 
     def __init__(
         self,
@@ -32,6 +32,8 @@ class ReliabilityManager:
         self._validate_configuration()
         self._histories: Dict[str, Deque[float]] = {}
         self._scores: Dict[str, float] = {}
+        self._success_counts: Dict[str, int] = {}
+        self._total_counts: Dict[str, int] = {}
         self.reset()
 
     def update(self, result: ToolResult) -> None:
@@ -48,11 +50,17 @@ class ReliabilityManager:
             history = self._histories[tool_name]
             history.append(observation)
             new_score = sum(history) / len(history)
-        else:  # self.method == "ewma"
+        elif self.method == "ewma":
             previous_score = self._scores[tool_name]
             new_score = (
                 self.ewma_alpha * observation
                 + (1.0 - self.ewma_alpha) * previous_score
+            )
+        else:  # self.method == "cumulative"
+            self._total_counts[tool_name] += 1
+            self._success_counts[tool_name] += int(result.success)
+            new_score = (
+                self._success_counts[tool_name] / self._total_counts[tool_name]
             )
 
         self._scores[tool_name] = self._clamp(new_score)
@@ -67,11 +75,13 @@ class ReliabilityManager:
         return {name: float(score) for name, score in self._scores.items()}
 
     def reset(self) -> None:
-        """Clear all histories and restore every tool to the neutral score."""
+        """Clear all histories/counters and restore neutral initial scores."""
         self._histories = {
             name: deque(maxlen=self.window_size) for name in self.tool_names
         }
         self._scores = {name: float(self.initial_score) for name in self.tool_names}
+        self._success_counts = {name: 0 for name in self.tool_names}
+        self._total_counts = {name: 0 for name in self.tool_names}
 
     def _validate_configuration(self) -> None:
         if self.method not in self.SUPPORTED_METHODS:
