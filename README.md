@@ -331,7 +331,7 @@ python run_reliability_dryrun.py
 
 이 스크립트는 AlwaysToolARouter로 Tool A를 고정 선택하여 Router 성능을 평가하는 것이 아니라 **AgentCore → Tool A → ToolResult → ReliabilityManager.update() 연결과 Reliability 추세**를 검증한다.
 
-sliding_window와 ewma를 각각 100 Task씩 실행하고 총 200행을 reliability_dryrun_results.csv에 저장한다.
+cumulative, sliding_window, ewma를 각각 100 Task씩 실행하고 총 300행을 reliability_dryrun_results.csv에 저장한다.
 
 ### 3) Baseline Dry Run
 
