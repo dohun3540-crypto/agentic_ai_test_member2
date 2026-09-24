@@ -1,0 +1,9 @@
+condition,routing,reliability_method,window_size,alpha,num_runs,num_tasks_per_run,task_success_rate,failure_avoidance_rate,tool_switching_rate,valid_detection_runs,detection_success_rate,mean_detection_lag_when_detected,valid_recovery_runs,recovery_success_rate,mean_recovery_lag_when_recovered,tool_a_reliability_stddev,tool_a_mean_abs_step_change
+baseline_reference,baseline,sliding_window,10,,10,100,0.673,0.5,0.0,0,0.0,,0,0.0,,0.2866139361,0.0388664422
+cumulative,proposed,cumulative,,,10,100,0.774,0.546,0.2424242424,10,1.0,8.1,4,0.4,9.0,0.1167210647,0.0103513868
+sliding_w5,proposed,sliding_window,5,,10,100,0.791,0.617,0.2595959596,10,1.0,4.0,5,0.5,15.2,0.2920142213,0.0254545455
+sliding_w10,proposed,sliding_window,10,,10,100,0.777,0.57,0.2646464646,10,1.0,3.9,1,0.1,15.0,0.2249149555,0.0154320988
+sliding_w20,proposed,sliding_window,20,,10,100,0.78,0.562,0.2535353535,10,1.0,6.9,3,0.3,14.0,0.1594518854,0.0110596191
+ewma_a01,proposed,ewma,,0.1,10,100,0.768,0.538,0.2666666667,10,1.0,11.2,1,0.1,15.0,0.1266133871,0.0153293153
+ewma_a03,proposed,ewma,,0.3,10,100,0.788,0.639,0.2878787879,10,1.0,3.5,7,0.7,11.5714285714,0.2390657036,0.0370470347
+ewma_a05,proposed,ewma,,0.5,10,100,0.793,0.69,0.2828282828,10,1.0,2.6,9,0.9,10.1111111111,0.3352031691,0.0542530135
