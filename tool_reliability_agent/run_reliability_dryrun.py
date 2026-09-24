@@ -11,7 +11,7 @@ from tools.simulated_tools import SimulatedToolA, SimulatedToolB
 
 
 OUTPUT_PATH = Path(__file__).resolve().parent / "reliability_dryrun_results.csv"
-METHODS = ("sliding_window", "ewma")
+METHODS = ("cumulative", "sliding_window", "ewma")
 SEGMENTS = (
     (1, 25, "95%"),
     (26, 50, "60%"),
